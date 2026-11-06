@@ -27,7 +27,23 @@
   header h1 { margin: 0; font-size: 18px; letter-spacing: .5px; }
   header h1 b { color: var(--gold); }
   header .ar { font-size: 13px; opacity: .8; }
-  .count { background: var(--gold); color: var(--navy); font-weight: 800; border-radius: 999px; padding: 6px 12px; white-space: nowrap; font-size: 15px; }
+  .count { background: var(--gold); color: var(--navy); font-weight: 800; border: 0; border-radius: 999px; padding: 8px 12px; white-space: nowrap; font-size: 15px; cursor: pointer; }
+  .results button .who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .badge { font-size: 13px; font-weight: 700; border-radius: 6px; padding: 1px 6px; align-self: flex-start; }
+  .badge.in { background: var(--orange); color: #fff; } .badge.off { background: var(--red); color: #fff; }
+
+  /* Today's check-ins panel */
+  #today { position: fixed; inset: 0; z-index: 9; background: var(--navy); display: flex; flex-direction: column; }
+  #today .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px 6px; }
+  #today h2 { margin: 0; font-size: 20px; }
+  #today .sum { padding: 0 16px 8px; opacity: .85; }
+  #today .filter { padding: 0 16px 8px; }
+  #today ol { list-style: none; margin: 0; padding: 0 16px 24px; overflow-y: auto; flex: 1; -webkit-overflow-scrolling: touch; }
+  #today li { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.12); }
+  #today li .t { color: var(--gold); font-weight: 800; font-variant-numeric: tabular-nums; }
+  #today li .n { word-break: break-word; }
+  #today li .no { opacity: .75; font-size: 14px; white-space: nowrap; }
+  #today .empty { padding: 24px 0; text-align: center; opacity: .75; }
   main { flex: 1; display: flex; flex-direction: column; padding: 0 16px 16px; gap: 12px; }
   button, input { font: inherit; }
   .btn { border: 0; border-radius: 12px; padding: 14px 18px; font-weight: 700; font-size: 18px; background: var(--gold); color: var(--navy); cursor: pointer; }
@@ -57,7 +73,7 @@
   .manual form input { flex: 1; min-width: 0; }
   .results { display: flex; flex-direction: column; gap: 6px; }
   .results button { text-align: left; background: rgba(255,255,255,.1); color: var(--ink); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 12px; font-size: 17px; display: flex; justify-content: space-between; gap: 8px; cursor: pointer; }
-  .results button span:last-child { color: var(--gold); font-weight: 700; white-space: nowrap; }
+  .results button > span:last-child { color: var(--gold); font-weight: 700; white-space: nowrap; }
   .results .none { opacity: .75; padding: 6px 2px; }
   .foot { display: flex; justify-content: space-between; align-items: center; max-width: 520px; width: 100%; margin: 0 auto; font-size: 13px; opacity: .8; gap: 8px; }
 
@@ -82,7 +98,7 @@
     <h1><b>JCUK</b> Door Check-in</h1>
     <div class="ar">الجالية الأردنية في المملكة المتحدة</div>
   </div>
-  <div class="count hidden" id="count">Today: 0</div>
+  <button class="count hidden" id="count" type="button" aria-label="Show who checked in today">Today: 0</button>
 </header>
 
 <!-- 1. PIN -->
@@ -123,8 +139,20 @@
   </div>
 </main>
 
+<!-- 3. Who checked in today -->
+<section id="today" class="hidden" aria-label="Checked in today">
+  <div class="bar">
+    <h2>Checked in today <span dir="rtl" style="opacity:.8;font-weight:600">· الحضور اليوم</span></h2>
+    <button class="btn ghost" id="todayClose" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="sum" id="todaySum"></div>
+  <div class="filter"><input id="todayFilter" type="text" placeholder="Filter by name or number / بحث" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Filter check-ins"></div>
+  <ol id="todayList"></ol>
+</section>
+
 <div id="result" class="hidden" role="status" aria-live="assertive"></div>
 
+<script src="search.js?v=2"></script>
 <script>
 (function () {
   'use strict';
@@ -160,9 +188,81 @@
 
   function setCount(n) {
     if (typeof n !== 'number') return;
-    $('count').textContent = 'Checked in today: ' + n;
+    $('count').textContent = 'Checked in today: ' + n + ' ›';
     $('count').classList.remove('hidden');
   }
+
+  // ---------- member list (instant smart search + today's check-ins) ----------
+  var members = null, prepared = [], membersTimer = null, membersSeq = 0;
+  function loadMembers() {
+    if (!pin) return Promise.resolve();
+    var seq = ++membersSeq;
+    return api('members').then(function (res) {
+      if (seq !== membersSeq || !pin) return;
+      if (res && res.status === 'badpin') { lock('The PIN was changed. Enter the new PIN. / تم تغيير الرمز'); return; }
+      if (!res || res.status !== 'ok') return;
+      members = res.members || [];
+      prepared = window.JCUKSearch ? JCUKSearch.prepare(members) : [];
+      setCount(res.count);
+      renderSearch();
+      renderToday();
+    }, function () { /* keep the last list; try again on the next refresh */ });
+  }
+  function startMembersRefresh() {
+    clearInterval(membersTimer);
+    loadMembers();
+    membersTimer = setInterval(function () { if (!document.hidden) loadMembers(); }, 60000);
+  }
+  function markCheckedIn(res) {
+    if (!members || !res || !res.no) return;
+    members.forEach(function (m) {
+      if (m.no === res.no && !m.time) {
+        var d = new Date();
+        m.time = res.time || (('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2));
+        m.at = d.getTime();
+      }
+    });
+    renderSearch(); renderToday();
+  }
+
+  // ---------- who checked in today ----------
+  function renderToday() {
+    if ($('today').classList.contains('hidden')) return;
+    var list = $('todayList');
+    list.innerHTML = '';
+    if (!members) { list.appendChild(el('li', 'empty', 'Loading… / جارٍ التحميل')); return; }
+    var inToday = members.filter(function (m) { return m.time; })
+      .sort(function (a, b) { return (b.at || 0) - (a.at || 0); });
+    $('todaySum').textContent = inToday.length + ' of ' + members.length + ' members checked in today';
+    var f = $('todayFilter').value.trim();
+    var shown = inToday;
+    if (f && window.JCUKSearch) {
+      var keep = {};
+      JCUKSearch.search(JCUKSearch.prepare(inToday), f, 1000).forEach(function (m) { keep[m.no] = 1; });
+      shown = inToday.filter(function (m) { return keep[m.no]; });
+    }
+    if (!shown.length) {
+      list.appendChild(el('li', 'empty', inToday.length ? 'No match / لا يوجد' : 'Nobody has checked in yet today. / لم يسجل أحد بعد'));
+      return;
+    }
+    shown.forEach(function (m) {
+      var li = document.createElement('li');
+      li.appendChild(el('span', 't', m.time));
+      li.appendChild(el('span', 'n', m.name));
+      li.appendChild(el('span', 'no', m.no));
+      list.appendChild(li);
+    });
+  }
+  function openToday() {
+    $('todayFilter').value = '';
+    $('today').classList.remove('hidden');
+    renderToday();
+    loadMembers();
+  }
+  function closeToday() { $('today').classList.add('hidden'); }
+  $('count').addEventListener('click', openToday);
+  $('todayClose').addEventListener('click', closeToday);
+  $('todayFilter').addEventListener('input', renderToday);
 
   // ---------- sound + vibration ----------
   var audio = null;
@@ -218,6 +318,7 @@
     var st = res && res.status;
     if (st === 'badpin') { lock('The PIN was changed. Enter the new PIN. / تم تغيير الرمز'); return; }
     if (typeof res.count === 'number') setCount(res.count);
+    if (st === 'ok' || st === 'already') { markCheckedIn(res); setTimeout(loadMembers, 300); }
     if (st === 'ok') {
       feedback('ok');
       show('ok', [el('div', 'icon', '✅'), el('div', 't1', 'Welcome'), el('div', 't2', 'أهلاً وسهلاً'),
@@ -256,6 +357,9 @@
   function lock(msg) {
     stopCamera();
     pin = null; saveDel(PIN_KEY);
+    clearInterval(membersTimer); membersSeq++; members = null; prepared = [];
+    $('results').innerHTML = ''; $('manualInput').value = '';
+    closeToday();
     hideResult();
     $('scanScreen').classList.add('hidden');
     $('count').classList.add('hidden');
@@ -267,6 +371,7 @@
     $('pinScreen').classList.add('hidden');
     $('scanScreen').classList.remove('hidden');
     setCount(count);
+    startMembersRefresh();
   }
   $('pinForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
@@ -402,19 +507,51 @@
 
   // ---------- manual entry ----------
   var NUMBER_RE = /^(?:[A-Za-z]-?)?\d{1,6}$/;
+
+  function resultRow(m) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    var who = el('span', 'who');
+    who.appendChild(el('span', '', m.name));
+    if (m.time) who.appendChild(el('span', 'badge in', '✓ In at ' + m.time));
+    else if (m.active === false) who.appendChild(el('span', 'badge off', 'Inactive'));
+    b.appendChild(who);
+    b.appendChild(el('span', '', m.no + ' ›'));
+    b.addEventListener('click', function () {
+      $('results').innerHTML = ''; $('manualInput').value = '';
+      lastCode = '';
+      checkIn(m.no);
+    });
+    return b;
+  }
+
+  // Instant results while typing (from the member list loaded after the PIN).
+  function renderSearch() {
+    var box = $('results'), q = $('manualInput').value.trim();
+    if (!members || !window.JCUKSearch) return;
+    box.innerHTML = '';
+    if (!q || (q.length < 2 && !/\d/.test(q))) return;
+    var list = JCUKSearch.search(prepared, q, 8);
+    if (!list.length) { box.appendChild(el('div', 'none', 'No member found / لا يوجد عضو')); return; }
+    list.forEach(function (m) { box.appendChild(resultRow(m)); });
+  }
+  $('manualInput').addEventListener('input', renderSearch);
+
   $('manualForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
     unlockAudio();
     var q = $('manualInput').value.trim();
     var box = $('results');
-    box.innerHTML = '';
-    if (!q) return;
+    if (!q) { box.innerHTML = ''; return; }
     if (NUMBER_RE.test(q.replace(/\s+/g, '')) || /[?&]id=/i.test(q)) {
+      box.innerHTML = '';
       $('manualInput').value = '';
       lastCode = ''; // allow a typed number right after a scan
       checkIn(q);
       return;
     }
+    if (members) { renderSearch(); $('manualInput').blur(); return; }   // results are already on screen: tap one
+    box.innerHTML = '';
     if (q.length < 2) { box.appendChild(el('div', 'none', 'Type at least 2 letters.')); return; }
     box.appendChild(el('div', 'none', 'Searching… / جارٍ البحث'));
     api('search', q).then(function (res) {
@@ -422,17 +559,7 @@
       if (res && res.status === 'badpin') { lock('The PIN was changed. Enter the new PIN.'); return; }
       var list = (res && res.results) || [];
       if (!list.length) { box.appendChild(el('div', 'none', 'No member found / لا يوجد عضو')); return; }
-      list.forEach(function (m) {
-        var b = document.createElement('button');
-        b.type = 'button';
-        b.appendChild(el('span', '', m.name));
-        b.appendChild(el('span', '', m.no + ' ›'));
-        b.addEventListener('click', function () {
-          box.innerHTML = ''; $('manualInput').value = '';
-          checkIn(m.no);
-        });
-        box.appendChild(b);
-      });
+      list.forEach(function (m) { box.appendChild(resultRow(m)); });
     }, function () {
       box.innerHTML = '';
       box.appendChild(el('div', 'none', 'No connection. Try again. / لا يوجد اتصال'));
