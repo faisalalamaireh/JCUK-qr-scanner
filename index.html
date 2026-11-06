@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1B2A4A">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>JCUK Door Scanner</title>
+<style>
+  :root {
+    --navy: #1B2A4A; --navy2: #24375f; --gold: #C9A24A;
+    --green: #007A3D; --red: #CE1126; --orange: #E07B00; --grey: #5b6475;
+    --ink: #ffffff;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--navy); color: var(--ink);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans Arabic", Arial, sans-serif;
+    display: flex; flex-direction: column; min-height: 100dvh;
+  }
+  .stripe { display: flex; height: 6px; flex: none; }
+  .stripe i { flex: 1; } .stripe i:nth-child(1){background:#000} .stripe i:nth-child(2){background:#fff} .stripe i:nth-child(3){background:var(--green)}
+  .stripe::before { content:""; width: 18%; background: var(--red); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; gap: 12px; flex: none; }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: .5px; }
+  header h1 b { color: var(--gold); }
+  header .ar { font-size: 13px; opacity: .8; }
+  .count { background: var(--gold); color: var(--navy); font-weight: 800; border-radius: 999px; padding: 6px 12px; white-space: nowrap; font-size: 15px; }
+  main { flex: 1; display: flex; flex-direction: column; padding: 0 16px 16px; gap: 12px; }
+  button, input { font: inherit; }
+  .btn { border: 0; border-radius: 12px; padding: 14px 18px; font-weight: 700; font-size: 18px; background: var(--gold); color: var(--navy); cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--ink); border: 1px solid rgba(255,255,255,.35); font-size: 14px; padding: 8px 12px; font-weight: 600; }
+  .btn:disabled { opacity: .5; }
+  input[type=text], input[type=password], input[type=tel] {
+    width: 100%; border: 2px solid transparent; border-radius: 12px; padding: 14px; font-size: 18px; background: #fff; color: var(--navy);
+  }
+  input:focus { outline: none; border-color: var(--gold); }
+  .hidden { display: none !important; }
+
+  /* PIN screen */
+  #pinScreen { justify-content: center; align-items: stretch; max-width: 420px; width: 100%; margin: 0 auto; }
+  #pinScreen h2 { margin: 0 0 4px; font-size: 24px; text-align: center; }
+  #pinScreen p { margin: 0 0 12px; text-align: center; opacity: .85; }
+  #pinInput { text-align: center; letter-spacing: 8px; font-size: 28px; }
+  .err { color: #ffb3bd; min-height: 1.4em; text-align: center; font-weight: 600; }
+
+  /* Scanner */
+  .cam { position: relative; width: 100%; max-width: 520px; margin: 0 auto; aspect-ratio: 1 / 1; border-radius: 16px; overflow: hidden; background: #000; flex: none; }
+  .cam video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .cam .frame { position: absolute; inset: 14%; border: 4px solid var(--gold); border-radius: 18px; box-shadow: 0 0 0 999px rgba(0,0,0,.25); pointer-events: none; }
+  .cam .hint { position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; font-weight: 600; text-shadow: 0 1px 3px #000; pointer-events: none; }
+  .cam .start { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 20px; text-align: center; background: var(--navy2); }
+  .manual { max-width: 520px; width: 100%; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+  .manual form { display: flex; gap: 8px; }
+  .manual form input { flex: 1; min-width: 0; }
+  .results { display: flex; flex-direction: column; gap: 6px; }
+  .results button { text-align: left; background: rgba(255,255,255,.1); color: var(--ink); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; padding: 12px; font-size: 17px; display: flex; justify-content: space-between; gap: 8px; cursor: pointer; }
+  .results button span:last-child { color: var(--gold); font-weight: 700; white-space: nowrap; }
+  .results .none { opacity: .75; padding: 6px 2px; }
+  .foot { display: flex; justify-content: space-between; align-items: center; max-width: 520px; width: 100%; margin: 0 auto; font-size: 13px; opacity: .8; gap: 8px; }
+
+  /* Result overlay */
+  #result { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; gap: 10px; }
+  #result.ok { background: var(--green); } #result.already { background: var(--orange); }
+  #result.bad { background: var(--red); } #result.busy { background: rgba(27,42,74,.92); } #result.neterr { background: var(--grey); }
+  #result .icon { font-size: 68px; line-height: 1; width: 120px; height: 120px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+  #result .t1 { font-size: 34px; font-weight: 800; }
+  #result .t2 { font-size: 30px; font-weight: 700; direction: rtl; }
+  #result .name { font-size: 30px; font-weight: 800; margin-top: 12px; word-break: break-word; }
+  #result .sub { font-size: 22px; opacity: .95; }
+  #result .tap { position: absolute; bottom: 24px; font-size: 14px; opacity: .8; }
+  .spinner { width: 56px; height: 56px; border: 6px solid rgba(255,255,255,.3); border-top-color: var(--gold); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="stripe"><i></i><i></i><i></i></div>
+<header>
+  <div>
+    <h1><b>JCUK</b> Door Check-in</h1>
+    <div class="ar">الجالية الأردنية في المملكة المتحدة</div>
+  </div>
+  <div class="count hidden" id="count">Today: 0</div>
+</header>
+
+<!-- 1. PIN -->
+<main id="pinScreen">
+  <h2>Door PIN</h2>
+  <p>Enter the door PIN to start scanning<br><span dir="rtl">أدخل رمز الباب للبدء</span></p>
+  <form id="pinForm" autocomplete="off">
+    <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="12" placeholder="••••••" autocomplete="off" aria-label="Door PIN">
+    <div class="err" id="pinErr"></div>
+    <button class="btn" style="width:100%" id="pinBtn" type="submit">Start / ابدأ</button>
+  </form>
+</main>
+
+<!-- 2. Scanner -->
+<main id="scanScreen" class="hidden">
+  <div class="cam">
+    <video id="video" playsinline muted autoplay></video>
+    <div class="frame"></div>
+    <div class="hint" id="hint">Point at the member's QR code</div>
+    <div class="start" id="startBox">
+      <div style="font-size:48px">📷</div>
+      <button class="btn" id="startBtn" type="button">Start camera / تشغيل الكاميرا</button>
+      <div class="err" id="camErr"></div>
+    </div>
+  </div>
+
+  <div class="manual">
+    <form id="manualForm" autocomplete="off">
+      <input id="manualInput" type="text" placeholder="Number or name / الرقم أو الاسم" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Member number or name">
+      <button class="btn" type="submit">Go</button>
+    </form>
+    <div class="results" id="results"></div>
+  </div>
+
+  <div class="foot">
+    <span id="engine"></span>
+    <button class="btn ghost" id="logoutBtn" type="button">Lock / قفل</button>
+  </div>
+</main>
+
+<div id="result" class="hidden" role="status" aria-live="assertive"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // The existing Apps Script web app. Member QR codes point here too, so it must not change.
+  var API = 'https://script.google.com/macros/s/AKfycbwmngNuF78OwDT386mUVR0NaIiuxBGKy0bF-fkFfptSjFcWeOmxdFC0OfAtRxhFC6Y/exec';
+  var JSQR_URL = 'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js';
+  var JSQR_SRI = 'sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx';
+  var RESULT_MS = 2000;      // how long a result stays on screen
+  var SAME_CODE_MS = 6000;   // ignore the same code re-read within this window
+  var PIN_KEY = 'jcukDoorPin', PIN_TTL = 12 * 3600 * 1000;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var pin = null, busy = false, lastCode = '', lastCodeAt = 0;
+  var stream = null, detector = null, jsQR = null, scanTimer = null;
+  var canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  var params = new URLSearchParams(location.search);
+
+  // ---------- storage (works even if blocked) ----------
+  function saveSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function saveGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function saveDel(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+  // ---------- API (plain GET, no Google login, no cookies) ----------
+  function api(action, q) {
+    var url = API + '?api=' + action + '&pin=' + encodeURIComponent(pin || '') + (q != null ? '&q=' + encodeURIComponent(q) : '') + '&t=' + Date.now();
+    var ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 20000);
+    return fetch(url, { method: 'GET', credentials: 'omit', cache: 'no-store', redirect: 'follow', signal: ctrl ? ctrl.signal : undefined })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .finally(function () { clearTimeout(timer); });
+  }
+
+  function setCount(n) {
+    if (typeof n !== 'number') return;
+    $('count').textContent = 'Checked in today: ' + n;
+    $('count').classList.remove('hidden');
+  }
+
+  // ---------- sound + vibration ----------
+  var audio = null;
+  function unlockAudio() {
+    try {
+      if (!audio) audio = new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === 'suspended') audio.resume();
+    } catch (e) {}
+  }
+  function tone(freq, start, dur) {
+    var o = audio.createOscillator(), g = audio.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, audio.currentTime + start);
+    g.gain.exponentialRampToValueAtTime(0.4, audio.currentTime + start + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + start + dur);
+    o.connect(g); g.connect(audio.destination);
+    o.start(audio.currentTime + start); o.stop(audio.currentTime + start + dur + 0.05);
+  }
+  function feedback(kind) {
+    try {
+      if (audio) {
+        if (kind === 'ok') { tone(880, 0, 0.12); tone(1320, 0.13, 0.18); }
+        else if (kind === 'already') { tone(660, 0, 0.2); tone(660, 0.25, 0.2); }
+        else { tone(220, 0, 0.35); tone(180, 0.4, 0.35); }
+      }
+    } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(kind === 'ok' ? 120 : [200, 100, 200]); } catch (e) {}
+  }
+
+  // ---------- result overlay ----------
+  var hideTimer = null;
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function show(cls, parts, autoHide) {
+    var box = $('result');
+    clearTimeout(hideTimer);
+    box.className = cls; box.innerHTML = '';
+    parts.forEach(function (p) { if (p) box.appendChild(p); });
+    if (autoHide) {
+      box.appendChild(el('div', 'tap', 'Tap to continue / اضغط للمتابعة'));
+      hideTimer = setTimeout(hideResult, RESULT_MS);
+    }
+  }
+  function hideResult() {
+    clearTimeout(hideTimer);
+    $('result').className = 'hidden';
+    busy = false;
+  }
+  $('result').addEventListener('click', function () { if (!$('result').classList.contains('busy')) hideResult(); });
+
+  function showBusy() { var s = el('div', 'spinner'); show('busy', [s, el('div', 'sub', 'Checking… / جارٍ التحقق')], false); }
+
+  function showOutcome(res) {
+    var st = res && res.status;
+    if (st === 'badpin') { lock('The PIN was changed. Enter the new PIN. / تم تغيير الرمز'); return; }
+    if (typeof res.count === 'number') setCount(res.count);
+    if (st === 'ok') {
+      feedback('ok');
+      show('ok', [el('div', 'icon', '✅'), el('div', 't1', 'Welcome'), el('div', 't2', 'أهلاً وسهلاً'),
+        el('div', 'name', res.name || ''), el('div', 'sub', res.no || '')], true);
+    } else if (st === 'already') {
+      feedback('already');
+      show('already', [el('div', 'icon', '⚠️'), el('div', 't1', 'Already checked in'), el('div', 't2', 'تم تسجيل الدخول مسبقاً'),
+        el('div', 'name', res.name || ''), el('div', 'sub', (res.no || '') + (res.time ? ' · at ' + res.time : ''))], true);
+    } else if (st === 'inactive') {
+      feedback('bad');
+      show('bad', [el('div', 'icon', '❌'), el('div', 't1', 'Inactive'), el('div', 't2', 'عضوية غير فعالة'),
+        el('div', 'name', res.name || ''), el('div', 'sub', res.no || '')], true);
+    } else if (st === 'notfound') {
+      feedback('bad');
+      show('bad', [el('div', 'icon', '❌'), el('div', 't1', 'Not found'), el('div', 't2', 'غير مسجل'),
+        el('div', 'sub', res.no || '')], true);
+    } else {
+      showNetErr(res && res.error);
+    }
+  }
+  function showNetErr(msg) {
+    lastCode = '';  // let the volunteer simply scan the same card again
+    feedback('bad');
+    show('neterr', [el('div', 'icon', '📶'), el('div', 't1', 'No connection'), el('div', 't2', 'لا يوجد اتصال'),
+      el('div', 'sub', 'Try again. ' + (msg ? '(' + msg + ')' : ''))], true);
+  }
+
+  function checkIn(text) {
+    if (busy) return;
+    busy = true;
+    showBusy();
+    api('checkin', text).then(showOutcome, function (e) { showNetErr(e && e.name === 'AbortError' ? 'timeout' : ''); });
+  }
+
+  // ---------- PIN ----------
+  function lock(msg) {
+    stopCamera();
+    pin = null; saveDel(PIN_KEY);
+    hideResult();
+    $('scanScreen').classList.add('hidden');
+    $('count').classList.add('hidden');
+    $('pinScreen').classList.remove('hidden');
+    $('pinErr').textContent = msg || '';
+    $('pinInput').value = '';
+  }
+  function unlocked(count) {
+    $('pinScreen').classList.add('hidden');
+    $('scanScreen').classList.remove('hidden');
+    setCount(count);
+  }
+  $('pinForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    unlockAudio();
+    var p = $('pinInput').value.trim();
+    if (!p) return;
+    $('pinBtn').disabled = true; $('pinErr').textContent = 'Checking… / جارٍ التحقق';
+    pin = p;
+    api('login').then(function (res) {
+      $('pinBtn').disabled = false;
+      if (res && res.ok) {
+        saveSet(PIN_KEY, JSON.stringify({ pin: p, at: Date.now() }));
+        $('pinErr').textContent = '';
+        unlocked(res.count);
+        startCamera();
+      } else {
+        pin = null;
+        $('pinErr').textContent = 'Wrong PIN / رمز خاطئ';
+        $('pinInput').select();
+      }
+    }, function () {
+      pin = null; $('pinBtn').disabled = false;
+      $('pinErr').textContent = 'No connection. Try again. / لا يوجد اتصال';
+    });
+  });
+  $('logoutBtn').addEventListener('click', function () { lock(''); });
+
+  // ---------- camera + decoding ----------
+  function loadJsQR() {
+    if (jsQR) return Promise.resolve();
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = JSQR_URL; s.integrity = JSQR_SRI; s.crossOrigin = 'anonymous';
+      s.onload = function () { jsQR = window.jsQR; resolve(); };
+      s.onerror = function () { reject(new Error('Could not load the QR reader. Check the internet connection.')); };
+      document.head.appendChild(s);
+    });
+  }
+  function setupDecoder() {
+    if (params.get('decoder') !== 'jsqr' && 'BarcodeDetector' in window) {
+      return Promise.resolve(window.BarcodeDetector.getSupportedFormats ? window.BarcodeDetector.getSupportedFormats() : ['qr_code'])
+        .then(function (f) {
+          if (f.indexOf('qr_code') === -1) throw new Error('no qr');
+          detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+          $('engine').textContent = 'Fast scanner';
+        })
+        .catch(function () { detector = null; return loadJsQR().then(function () { $('engine').textContent = 'Scanner: jsQR'; }); });
+    }
+    return loadJsQR().then(function () { $('engine').textContent = 'Scanner: jsQR'; });
+  }
+
+  function startCamera() {
+    unlockAudio();
+    $('camErr').textContent = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      $('camErr').textContent = 'This browser cannot use the camera. Use Safari (iPhone) or Chrome (Android), or type the number below.';
+      return;
+    }
+    $('startBtn').disabled = true;
+    setupDecoder().then(function () {
+      return navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+    }).then(function (s) {
+      stream = s;
+      var v = $('video');
+      v.srcObject = s;
+      return v.play();
+    }).then(function () {
+      $('startBox').classList.add('hidden');
+      $('startBtn').disabled = false;
+      scheduleScan();
+    }).catch(function (e) {
+      $('startBtn').disabled = false;
+      var msg = (e && e.name === 'NotAllowedError')
+        ? 'Camera permission was refused. Allow camera access for this site in the browser settings, then tap Start camera.'
+        : (e && e.message) || 'Camera could not start.';
+      $('camErr').textContent = msg + ' You can still type the number below.';
+      stopCamera(true);
+    });
+  }
+  function stopCamera(keepError) {
+    clearTimeout(scanTimer); scanTimer = null;
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    $('video').srcObject = null;
+    $('startBox').classList.remove('hidden');
+    if (!keepError) $('camErr').textContent = '';
+  }
+  $('startBtn').addEventListener('click', startCamera);
+
+  function scheduleScan() { clearTimeout(scanTimer); scanTimer = setTimeout(scanOnce, 120); }
+
+  function scanOnce() {
+    if (!stream) return;
+    var v = $('video');
+    if (busy || v.readyState < 2 || !v.videoWidth) { scheduleScan(); return; }
+    decodeFrame(v).then(function (text) {
+      if (text) onCode(text);
+    }).catch(function () {}).then(function () { if (stream) scheduleScan(); });
+  }
+
+  function decodeFrame(v) {
+    if (detector) {
+      return detector.detect(v).then(function (codes) { return codes && codes.length ? codes[0].rawValue : null; });
+    }
+    // jsQR: centre square of the frame, scaled down for speed
+    var w = v.videoWidth, h = v.videoHeight, side = Math.min(w, h);
+    var size = Math.min(side, 640);
+    canvas.width = size; canvas.height = size;
+    ctx.drawImage(v, (w - side) / 2, (h - side) / 2, side, side, 0, 0, size, size);
+    var img = ctx.getImageData(0, 0, size, size);
+    var res = jsQR(img.data, size, size, { inversionAttempts: 'dontInvert' });
+    return Promise.resolve(res ? res.data : null);
+  }
+
+  function onCode(text) {
+    text = String(text || '').trim();
+    if (!text) return;
+    var now = Date.now();
+    // Same card still in front of the camera: keep ignoring it until it has been gone for SAME_CODE_MS.
+    if (text === lastCode && now - lastCodeAt < SAME_CODE_MS) { lastCodeAt = now; return; }
+    lastCode = text; lastCodeAt = now;
+    checkIn(text);
+  }
+
+  // Pause the camera when the phone is locked / tab hidden, resume when back.
+  document.addEventListener('visibilitychange', function () {
+    if (!pin) return;
+    if (document.hidden) stopCamera();
+    else if (!$('scanScreen').classList.contains('hidden')) startCamera();
+  });
+
+  // ---------- manual entry ----------
+  var NUMBER_RE = /^(?:[A-Za-z]-?)?\d{1,6}$/;
+  $('manualForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    unlockAudio();
+    var q = $('manualInput').value.trim();
+    var box = $('results');
+    box.innerHTML = '';
+    if (!q) return;
+    if (NUMBER_RE.test(q.replace(/\s+/g, '')) || /[?&]id=/i.test(q)) {
+      $('manualInput').value = '';
+      lastCode = ''; // allow a typed number right after a scan
+      checkIn(q);
+      return;
+    }
+    if (q.length < 2) { box.appendChild(el('div', 'none', 'Type at least 2 letters.')); return; }
+    box.appendChild(el('div', 'none', 'Searching… / جارٍ البحث'));
+    api('search', q).then(function (res) {
+      box.innerHTML = '';
+      if (res && res.status === 'badpin') { lock('The PIN was changed. Enter the new PIN.'); return; }
+      var list = (res && res.results) || [];
+      if (!list.length) { box.appendChild(el('div', 'none', 'No member found / لا يوجد عضو')); return; }
+      list.forEach(function (m) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.appendChild(el('span', '', m.name));
+        b.appendChild(el('span', '', m.no + ' ›'));
+        b.addEventListener('click', function () {
+          box.innerHTML = ''; $('manualInput').value = '';
+          checkIn(m.no);
+        });
+        box.appendChild(b);
+      });
+    }, function () {
+      box.innerHTML = '';
+      box.appendChild(el('div', 'none', 'No connection. Try again. / لا يوجد اتصال'));
+    });
+  });
+
+  // ---------- resume a recent session on this phone ----------
+  try {
+    var saved = JSON.parse(saveGet(PIN_KEY) || 'null');
+    if (saved && saved.pin && Date.now() - saved.at < PIN_TTL) {
+      pin = saved.pin;
+      api('login').then(function (res) {
+        if (res && res.ok) unlocked(res.count);   // camera starts on "Start camera" tap (needs a tap on iPhone)
+        else lock('');
+      }, function () { unlocked(); });
+    } else if (saved) { saveDel(PIN_KEY); }
+  } catch (e) { saveDel(PIN_KEY); }
+})();
+</script>
+</body>
+</html>
